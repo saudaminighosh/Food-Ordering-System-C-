@@ -1,0 +1,313 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+// === Utility Functions ===
+vector<string> split(const string &s, char delim) {
+    vector<string> out;
+    string cur;
+    stringstream ss(s);
+    while (getline(ss, cur, delim)) out.push_back(cur);
+    return out;
+}
+
+string trim(const string &s) {
+    size_t a = s.find_first_not_of(" \t\r\n");
+    if (a==string::npos) return "";
+    size_t b = s.find_last_not_of(" \t\r\n");
+    return s.substr(a, b-a+1);
+}
+
+string nowStr() {
+    time_t t = time(nullptr);
+    char buf[64];
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", localtime(&t));
+    return string(buf);
+}
+
+int nextIdForFile(const string &fname) {
+    ifstream f(fname);
+    string line;
+    int maxId = 0;
+    while (getline(f, line)) {
+        line = trim(line);
+        if (line.empty()) continue;
+        auto parts = split(line, ',');
+        if (!parts.empty()) {
+            try {
+                int id = stoi(trim(parts[0]));
+                maxId = max(maxId, id);
+            } catch (...) { continue; }
+        }
+    }
+    return maxId + 1;
+}
+
+// === Entity Classes ===
+class User {
+public:
+    int id;
+    string name, email, phone, address;
+
+    User() = default;
+    User(int i, string n, string e, string p, string a)
+        : id(i), name(move(n)), email(move(e)), phone(move(p)), address(move(a)) {}
+};
+
+class MenuItem {
+public:
+    int id;
+    string name, description, category;
+    double price;
+
+    MenuItem() = default;
+    MenuItem(int i, string n, string d, double p, string c)
+        : id(i), name(move(n)), description(move(d)), price(p), category(move(c)) {}
+};
+
+class OrderItem {
+public:
+    int itemId;
+    int qty;
+    double price;
+
+    OrderItem() = default;
+    OrderItem(int id, int q, double p): itemId(id), qty(q), price(p) {}
+};
+
+class Order {
+public:
+    int orderId;
+    int userId;
+    string orderDate, status;
+    double total;
+    vector<OrderItem> items;
+
+    Order() : orderId(0), userId(0), total(0.0), status("Pending") {}
+};
+
+// === Manager Classes ===
+class UserManager {
+    const string USERS_FILE = "users.csv";
+
+public:
+    vector<User> loadUsers() {
+        vector<User> users;
+        ifstream f(USERS_FILE);
+        string line;
+        while (getline(f, line)) {
+            line = trim(line);
+            if (line.empty()) continue;
+            auto parts = split(line, ',');
+            if (parts.size() < 4) continue;
+            try {
+                User u(stoi(trim(parts[0])), trim(parts[1]), trim(parts[2]), trim(parts[3]),
+                       parts.size() > 4 ? trim(parts[4]) : "");
+                users.push_back(u);
+            } catch (...) { continue; }
+        }
+        return users;
+    }
+
+    void saveUser(const User &u) {
+        ofstream f(USERS_FILE, ios::app);
+        f << u.id << "," << u.name << "," << u.email << "," << u.phone << "," << u.address << "\n";
+    }
+};
+
+class MenuManager {
+    const string MENU_FILE = "menu.csv";
+
+public:
+    vector<MenuItem> loadMenu() {
+        vector<MenuItem> menu;
+        ifstream f(MENU_FILE);
+        string line;
+        while (getline(f, line)) {
+            line = trim(line);
+            if (line.empty()) continue;
+            auto parts = split(line, ',');
+            if (parts.size() < 4) continue;
+            try {
+                MenuItem m(stoi(trim(parts[0])), trim(parts[1]), trim(parts[2]),
+                           stod(trim(parts[3])), parts.size() > 4 ? trim(parts[4]) : "");
+                menu.push_back(m);
+            } catch (...) { continue; }
+        }
+        return menu;
+    }
+
+    void seedMenuIfEmpty(vector<MenuItem> &menu) {
+        if (!menu.empty()) return;
+        menu = {
+            {1, "Margherita Pizza", "Classic cheese & tomato", 8.99, "Pizza"},
+            {2, "Veg Burger", "Patty, lettuce, tomato", 5.49, "Burger"},
+            {3, "Caesar Salad", "Romaine, dressing, croutons", 6.50, "Salad"},
+            {4, "French Fries", "Crispy fried potatoes", 2.99, "Sides"}
+        };
+        for (auto &m : menu) {
+            ofstream f(MENU_FILE, ios::app);
+            f << m.id << "," << m.name << "," << m.description << ","
+              << fixed << setprecision(2) << m.price << "," << m.category << "\n";
+        }
+    }
+};
+
+class OrderManager {
+    const string ORDERS_FILE = "orders.csv";
+
+public:
+    void saveOrder(const Order &o) {
+        ofstream f(ORDERS_FILE, ios::app);
+        stringstream itemsSs;
+        for (size_t i=0;i<o.items.size();++i) {
+            if (i) itemsSs << ";";
+            itemsSs << o.items[i].itemId << ":" << o.items[i].qty << ":" << o.items[i].price;
+        }
+        f << o.orderId << "," << o.userId << "," << o.orderDate << "," << o.status << ","
+          << fixed << setprecision(2) << o.total << "," << itemsSs.str() << "\n";
+    }
+
+    void showUserOrders(int userId, const vector<MenuItem> &menu) {
+        ifstream f(ORDERS_FILE);
+        string line;
+        cout << "\n--- Your Orders ---\n";
+        while (getline(f,line)) {
+            line = trim(line);
+            if (line.empty()) continue;
+            auto parts = split(line, ',');
+            if (parts.size() < 6) continue;
+            int oid = stoi(trim(parts[0]));
+            int uid = stoi(trim(parts[1]));
+            if (uid != userId) continue;
+
+            string date = parts[2], status = parts[3], total = parts[4], itemsStr = parts[5];
+            cout << "Order #" << oid << " | " << date << " | " << status << " | $" << total << "\n";
+
+            auto its = split(itemsStr, ';');
+            for (auto &it : its) {
+                auto p = split(it, ':');
+                if (p.size() < 3) continue;
+                int mid = stoi(trim(p[0]));
+                int qty = stoi(trim(p[1]));
+                double price = stod(trim(p[2]));
+                auto mm = find_if(menu.begin(), menu.end(), [&](const MenuItem &m){ return m.id==mid;});
+                string mname = mm != menu.end() ? mm->name : ("Item#" + to_string(mid));
+                cout << "   - " << mname << " x" << qty << " @ $" << fixed << setprecision(2) << price << "\n";
+            }
+        }
+    }
+};
+
+// === Main Application Class ===
+class FoodOrderingSystem {
+    UserManager userMgr;
+    MenuManager menuMgr;
+    OrderManager orderMgr;
+    vector<User> users;
+    vector<MenuItem> menu;
+    User currentUser;
+    bool loggedIn = false;
+
+public:
+    void run() {
+        ios::sync_with_stdio(false);
+        cin.tie(nullptr);
+
+        // Ensure files exist
+        { ofstream("users.csv", ios::app); ofstream("menu.csv", ios::app); ofstream("orders.csv", ios::app); }
+
+        users = userMgr.loadUsers();
+        menu = menuMgr.loadMenu();
+        menuMgr.seedMenuIfEmpty(menu);
+
+        cout << "=== Food Ordering System (OOP Console Version) ===\n";
+
+        while (true) {
+            if (!loggedIn) showLoginMenu();
+            else showUserMenu();
+        }
+    }
+
+private:
+    void showLoginMenu() {
+        cout << "\n1) Register\n2) Login\n3) Exit\nChoose: ";
+        int c; if (!(cin>>c)) {cin.clear();cin.ignore(10000,'\n');return;}
+        if (c==1) registerUser();
+        else if (c==2) loginUser();
+        else if (c==3) exit(0);
+    }
+
+    void registerUser() {
+        User u;
+        u.id = nextIdForFile("users.csv");
+        cout << "Name: "; cin.ignore(); getline(cin, u.name);
+        cout << "Email: "; getline(cin, u.email);
+        cout << "Phone: "; getline(cin, u.phone);
+        cout << "Address: "; getline(cin, u.address);
+        userMgr.saveUser(u);
+        users.push_back(u);
+        cout << "Registered. Your user id: " << u.id << "\n";
+    }
+
+    void loginUser() {
+        cout << "Enter email: ";
+        string em; cin >> em;
+        auto it = find_if(users.begin(), users.end(), [&](const User &x){ return x.email==em; });
+        if (it != users.end()) {
+            currentUser = *it;
+            loggedIn = true;
+            cout << "Welcome back, " << currentUser.name << "!\n";
+        } else cout << "No user found. Please register.\n";
+    }
+
+    void showUserMenu() {
+        cout << "\n1) View Menu\n2) Add to Cart & Place Order\n3) Order History\n4) Logout\nChoose: ";
+        int c; if (!(cin>>c)) {cin.clear();cin.ignore(10000,'\n');return;}
+        if (c==1) viewMenu();
+        else if (c==2) createOrder();
+        else if (c==3) orderMgr.showUserOrders(currentUser.id, menu);
+        else if (c==4) { loggedIn=false; cout << "Logged out.\n"; }
+    }
+
+    void viewMenu() {
+        cout << "\n--- Menu ---\n";
+        for (auto &m: menu) {
+            cout << m.id << ". " << m.name << " - $" << fixed << setprecision(2) << m.price
+                 << " (" << m.category << ")\n    " << m.description << "\n";
+        }
+    }
+
+    void createOrder() {
+        vector<OrderItem> cart;
+        while (true) {
+            cout << "Enter item id (0 to stop): ";
+            int id; cin >> id;
+            if (id==0) break;
+            auto it = find_if(menu.begin(), menu.end(), [&](const MenuItem &mi){ return mi.id==id;});
+            if (it==menu.end()) { cout << "Invalid id\n"; continue;}
+            cout << "Quantity: ";
+            int q; cin >> q;
+            cart.emplace_back(id, q, it->price);
+        }
+        if (cart.empty()) { cout << "Cart empty.\n"; return; }
+
+        Order o;
+        o.orderId = nextIdForFile("orders.csv");
+        o.userId = currentUser.id;
+        o.orderDate = nowStr();
+        o.items = cart;
+        o.total = 0.0;
+        for (auto &it : cart) o.total += it.price * it.qty;
+        orderMgr.saveOrder(o);
+
+        cout << "Order placed (id=" << o.orderId << "). Total: $" 
+             << fixed << setprecision(2) << o.total << "\n";
+    }
+};
+
+// === Main ===
+int main() {
+    FoodOrderingSystem app;
+    app.run();
+    return 0;
+}
